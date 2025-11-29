@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container">
+    <div class="header">
+        <h1>Pixiv API Manager</h1>
+        <div>
+            <button class="btn btn-primary" onclick="openAddModal()">+ Add Account</button>
+            <a href="{{ url_for('ui.logout') }}" class="btn btn-danger" style="margin-left: 10px;">Logout</a>
+        </div>
+    </div>
+
+    <div id="alert-container"></div>
+
+    <div class="stats">
+        <div class="stat-card">
+            <div class="stat-value" id="total-accounts">{{ total }}</div>
+            <div class="stat-label">Total Accounts</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="active-accounts">{{ accounts|selectattr('authenticated')|list|length }}</div>
+            <div class="stat-label">Active</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="total-requests">{{ accounts|sum(attribute='request_count') }}</div>
+            <div class="stat-label">Total Requests</div>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 20px;">
+        <div class="card-title">Proxy Settings</div>
+        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 200px;">
+                <label style="color: #888; font-size: 12px;">HTTP/HTTPS Proxy</label>
+                <input type="text" id="proxy-url" placeholder="http://127.0.0.1:7890" style="margin-bottom: 0;">
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <label style="display: flex; align-items: center; gap: 5px; color: #888;">
+                    <input type="checkbox" id="proxy-enabled" style="width: auto;">
+                    Enable
+                </label>
+                <button class="btn btn-primary btn-sm" onclick="saveProxy()">Save & Apply</button>
+            </div>
+            <div id="proxy-status" style="color: #888; font-size: 12px;"></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">Account Pool</div>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Requests</th>
+                    <th>Last Request</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="accounts-table">
+                {% for acc in accounts %}
+                <tr data-name="{{ acc.name }}">
+                    <td>{{ acc.name }}</td>
+                    <td><span class="status {{ 'status-ok' if acc.authenticated else 'status-err' }}">{{ 'Active' if acc.authenticated else 'Inactive' }}</span></td>
+                    <td>{{ acc.request_count }}</td>
+                    <td>{{ acc.last_request|int if acc.last_request else '-' }}</td>
+                    <td>
+                        <button class="btn btn-success btn-sm" onclick="refreshAccount('{{ acc.name }}')">Refresh</button>
+                        <button class="btn btn-danger btn-sm" onclick="removeAccount('{{ acc.name }}')">Remove</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+
+<!-- Add Account Modal -->
+<div class="modal" id="addModal">
+    <div class="modal-content">
+        <div class="modal-title">Add Account</div>
+        <form id="addForm">
+            <div class="form-group">
+                <label>Account Name (optional)</label>
+                <input type="text" name="name" id="add-name" placeholder="account_name">
+            </div>
+            <div class="form-group">
+                <label>Auth Method</label>
+                <select id="auth-method" onchange="toggleAuthFields()">
+                    <option value="token">Refresh Token</option>
+                    <option value="gppt">Pixiv Login (GPPT)</option>
+                </select>
+            </div>
+            <div id="token-fields">
+                <div class="form-group">
+                    <label>Refresh Token</label>
+                    <input type="text" name="refresh_token" id="add-token" placeholder="your_refresh_token">
+                </div>
+            </div>
+            <div id="gppt-fields" style="display: none;">
+                <div style="color: #888; font-size: 14px; padding: 15px; background: #0f0f23; border-radius: 6px; text-align: center;">
+                    <p style="margin-bottom: 10px;">Click "Login with Pixiv" to open browser</p>
+                    <p style="margin-bottom: 10px;">Login on Pixiv page directly (1 min timeout)</p>
+                    <p style="color: #0096fa;">Uses global proxy settings if enabled</p>
+                </div>
+            </div>
+            <div class="actions">
+                <button type="button" class="btn" onclick="closeAddModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="add-btn">Add</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const AUTH_TOKEN = "{{ config.auth_token }}";
+
+function showAlert(msg, type) {
+    const container = document.getElementById('alert-container');
+    container.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+    setTimeout(() => container.innerHTML = '', 3000);
+}
+
+function apiCall(url, method, data) {
+    return fetch(url, {
+        method: method,
+        headers: {
+            'Authorization': `Bearer ${AUTH_TOKEN}`,
+            'Content-Type': 'application/json'
+        },
+        body: data ? JSON.stringify(data) : undefined
+    }).then(r => r.json());
+}
+
+function openAddModal() {
+    document.getElementById('addModal').classList.add('active');
+}
+
+function closeAddModal() {
+    document.getElementById('addModal').classList.remove('active');
+    document.getElementById('addForm').reset();
+}
+
+function toggleAuthFields() {
+    const method = document.getElementById('auth-method').value;
+    document.getElementById('token-fields').style.display = method === 'token' ? 'block' : 'none';
+    document.getElementById('gppt-fields').style.display = method === 'gppt' ? 'block' : 'none';
+    document.getElementById('add-btn').textContent = method === 'gppt' ? 'Login with Pixiv' : 'Add';
+}
+
+document.getElementById('addForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const method = document.getElementById('auth-method').value;
+    const name = document.getElementById('add-name').value;
+    
+    let url, data;
+    if (method === 'token') {
+        url = '/api/pool/add';
+        const token = document.getElementById('add-token').value;
+        if (!token) {
+            showAlert('Please enter refresh token', 'error');
+            return;
+        }
+        data = { name, refresh_token: token };
+    } else {
+        // GPPT 交互式登录 - 打开浏览器让用户登录
+        url = '/api/pool/login';
+        data = { name };
+        showAlert('Opening Pixiv login page... Please login in the browser window', 'success');
+    }
+    
+    const res = await apiCall(url, 'POST', data);
+    if (res.success) {
+        showAlert('Account added successfully', 'success');
+        closeAddModal();
+        location.reload();
+    } else {
+        showAlert(res.error || 'Failed to add account', 'error');
+    }
+};
+
+async function refreshAccount(name) {
+    const res = await apiCall(`/api/pool/refresh/${name}`, 'POST');
+    if (res.success) {
+        showAlert(`Account ${name} refreshed`, 'success');
+        location.reload();
+    } else {
+        showAlert(res.error || 'Refresh failed', 'error');
+    }
+}
+
+async function removeAccount(name) {
+    if (!confirm(`Remove account "${name}"?`)) return;
+    const res = await apiCall('/api/pool/remove', 'POST', { name });
+    if (res.success) {
+        showAlert(`Account ${name} removed`, 'success');
+        location.reload();
+    } else {
+        showAlert(res.error || 'Remove failed', 'error');
+    }
+}
+
+// Proxy functions
+async function loadProxyStatus() {
+    const res = await apiCall('/api/proxy/status', 'GET');
+    document.getElementById('proxy-enabled').checked = res.enabled;
+    document.getElementById('proxy-url').value = res.http || '';
+    document.getElementById('proxy-status').textContent = res.enabled ? '✓ Proxy enabled' : '○ Proxy disabled';
+}
+
+async function saveProxy() {
+    const enabled = document.getElementById('proxy-enabled').checked;
+    const url = document.getElementById('proxy-url').value;
+    
+    const res = await apiCall('/api/proxy/set', 'POST', {
+        enabled: enabled,
+        http: url,
+        https: url
+    });
+    
+    if (res.success) {
+        document.getElementById('proxy-status').textContent = res.enabled ? '✓ Proxy enabled' : '○ Proxy disabled';
+        showAlert('Proxy settings updated', 'success');
+    } else {
+        showAlert(res.error || 'Failed to update proxy', 'error');
+    }
+}
+
+// Load proxy status on page load
+loadProxyStatus();
+</script>
+{% endblock %}
