@@ -19,7 +19,6 @@ def get_user_detail(user_id):
         return jsonify({"error": "No available account"}), 503
     try:
         result = api.user_detail(user_id)
-        result["_account"] = name
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -34,7 +33,6 @@ def get_user_illusts(user_id):
     offset = request.args.get("offset", 0, type=int)
     try:
         result = api.user_illusts(user_id, offset=offset)
-        result["_account"] = name
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500

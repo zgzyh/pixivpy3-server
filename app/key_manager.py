@@ -143,6 +143,9 @@ class KeyManager:
 
     def check_access(self, key_value: str, endpoint: str) -> Tuple[bool, str]:
         """检查 API Key 是否有权访问指定端点"""
+        # 每次检查时从配置重新加载，确保配置变更立即生效
+        self._reload_from_config()
+        
         api_key = self.get_key(key_value)
 
         if not api_key:
@@ -161,6 +164,12 @@ class KeyManager:
             if self._match_endpoint(normalized_endpoint, api_key.denied_endpoints):
                 return False, "Access denied to this endpoint"
             return True, ""
+    
+    def _reload_from_config(self):
+        """从配置文件重新加载 API Keys"""
+        from app.config import config
+        config.reload()
+        self._keys = [APIKey.from_dict(k) for k in (config.api_keys or [])]
 
     def _normalize_endpoint(self, endpoint: str) -> str:
         """规范化端点路径，移除动态参数"""

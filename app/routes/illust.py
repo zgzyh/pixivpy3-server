@@ -21,7 +21,6 @@ def get_illust(illust_id):
         return jsonify({"error": "No available account"}), 503
     try:
         result = api.illust_detail(illust_id)
-        result["_account"] = name
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -37,7 +36,6 @@ def search_illust():
     offset = request.args.get("offset", 0, type=int)
     try:
         result = api.search_illust(word, offset=offset)
-        result["_account"] = name
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -54,7 +52,6 @@ def get_ranking():
     offset = request.args.get("offset", 0, type=int)
     try:
         result = api.illust_ranking(mode=mode, offset=offset)
-        result["_account"] = name
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -69,7 +66,6 @@ def get_recommended():
     offset = request.args.get("offset", 0, type=int)
     try:
         result = api.illust_recommended(offset=offset)
-        result["_account"] = name
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
